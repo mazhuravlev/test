@@ -14,6 +14,7 @@ interface Obj {
   velocity: Pt2;
 }
 
+let p = 1;
 const d = math.derivative('sin(x/20) * 20 + 100', 'x');
 
 class App extends Component {
@@ -22,8 +23,9 @@ class App extends Component {
   private renderCanvas = (ctx: CanvasRenderingContext2D, mousePos : Pt2, obj: Obj) => {
     ctx.beginPath();
     ctx.moveTo(0, 0);
+    p+=1;
     for(let x = 0; x < 900; x += 6) {
-        ctx.lineTo(x, Math.sin(x/20) * 20 + 100);
+        ctx.lineTo(x, Math.sin((x + p)/20) * 20 + 100);
     }
     ctx.stroke();
     if(mousePos) {
@@ -31,8 +33,8 @@ class App extends Component {
       ctx.beginPath();
       ctx.arc(obj.position.x + s/2, obj.position.y + s/2, s, 0, 2 * Math.PI);
       ctx.stroke();
-      const y = Math.sin(mousePos.x/20) * 20 + 100;
-      const tg = d.eval({x: mousePos.x});
+      const y = Math.sin((mousePos.x+p)/20) * 20 + 100;
+      const tg = math.derivative(`sin((x+${p})/20) * 20 + 100`, 'x').eval({x: mousePos.x});
       ctx.moveTo(mousePos.x - 50, y - 50 * tg);
       ctx.lineTo(mousePos.x  + 50, y + 50 * tg);
       ctx.stroke();

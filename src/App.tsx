@@ -1,6 +1,7 @@
 import React, { Component } from 'react';
 import './App.css';
 import * as math from 'mathjs';
+import { object } from 'prop-types';
 
 class Vec2 {
   constructor(public readonly x: number, public readonly y: number) {
@@ -85,6 +86,7 @@ class Display {
   private ctx: CanvasRenderingContext2D; 
   public onClick?: (position: Vec2) => void;
   canvasBBox: ClientRect | DOMRect;
+  public offset = 0;
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
@@ -93,7 +95,7 @@ class Display {
     this.canvasBBox = canvas.getBoundingClientRect();
     canvas.onclick = e => {
       if(this.onClick) {
-        const clickPos = this.fromCanvas(new Vec2(e.clientX - this.canvasBBox.left, e.clientY - this.canvasBBox.top));
+        const clickPos = this.fromCanvas(new Vec2(e.clientX - this.canvasBBox.left + this.offset, e.clientY - this.canvasBBox.top));
         this.onClick(clickPos);
       }
     };
@@ -108,7 +110,7 @@ class Display {
     ctx.beginPath();
     ctx.moveTo(0, 0);
     for(let x = 0; x < this.canvas.width; x += 6) {
-        ctx.lineTo(x, this.canvas.height - f.eval({x}));
+        ctx.lineTo(x, this.canvas.height - f.eval({x: x + this.offset}));
     }
     ctx.stroke();
   }
@@ -117,7 +119,7 @@ class Display {
     const { ctx } = this;
     const size = 6;
     const forceDrawMultiplier = 30000;
-    const canvasObjPos = this.toCanvas(obj.getPosition());
+    const canvasObjPos = this.toCanvas(obj.getPosition()).substract(new Vec2(this.offset, 0));
     ctx.beginPath();
     ctx.arc(canvasObjPos.x, canvasObjPos.y, size, 0, 2 * Math.PI);
     ctx.stroke();
@@ -137,6 +139,13 @@ class Display {
     ctx.lineTo(canvasObjPos.x + sumForce.x * forceDrawMultiplier, canvasObjPos.y - sumForce.y * forceDrawMultiplier);
     ctx.stroke();
     ctx.strokeStyle = s;
+    const ox = this.canvas.width / 2 - canvasObjPos.x;
+    const dOffset = ox * ox / 10000;
+    if(canvasObjPos.x > this.canvas.width / 2) {
+      this.offset += dOffset;
+    } else {
+      this.offset -= dOffset;
+    }
   }
 
   private fromCanvas(vec2: Vec2): Vec2 {
@@ -148,7 +157,7 @@ class Display {
   }
 }
 
-const gravity = new Vec2(0, -.00098);
+const gravity = (mass: number) => new Vec2(0, mass * -0.000098);
 
 const terrainExprString = 'sin(x/30) * 30 + 100';
 // const terrainExprString = ' ((x-400)/15)^2 + 125';
@@ -162,14 +171,33 @@ class App extends Component {
   private keyDown = false;
 
   public componentDidMount() {
-    document.addEventListener('keydown', e => this.keyDown = true);
-    document.addEventListener('keyup', e => this.keyDown = false);
-
     const obj = new Obj(10);
     obj.setPosition(new Vec2(450,150));
 
     if(!this.cRef.current) return;
     const display = new Display(this.cRef.current);
+    document.addEventListener('keydown', e => {
+      switch(e.keyCode) {
+        case 32:
+          this.keyDown = true;
+          break;
+        case 37:
+          display.offset -= 10;
+          break;
+        case 39:
+          display.offset += 10;
+          break;
+        default:
+          console.log(e.keyCode);
+      }
+    });
+    document.addEventListener('keyup', e => {
+      switch(e.keyCode) {
+        case 32:
+          this.keyDown = false;
+          break;
+      }
+    });
     display.onClick = (pos) => {
       obj.setPosition(pos);
       obj.setVelocity(new Vec2(0,0));
@@ -182,7 +210,7 @@ class App extends Component {
       if(objPos.y - terrainY < collisionTheshold) {
         const tg = terrainExprDerivative.eval({x: objPos.x});
         const θ = Math.atan(tg);
-        const fN = gravity.multiply(Math.cos(θ) * obj.getVelocity().length * 100).rotate(θ - Math.PI);
+        const fN = gravity(obj.mass).multiply(Math.cos(θ) * obj.getVelocity().length * 100).rotate(θ - Math.PI);
         if(!flag) {
           const v = obj.getVelocity();
          // obj.setVelocity(new Vec2(v.x * Math.sin(θ), v.y * Math.cos(θ)));
@@ -192,8 +220,8 @@ class App extends Component {
       } else {
         flag = false;
       }
-      if(this.keyDown) obj.applyForce(gravity.multiply(4));
-      obj.applyForce(gravity);
+      if(this.keyDown) obj.applyForce(gravity(obj.mass));
+      obj.applyForce(gravity(obj.mass));
 
       display.clear();
       display.renderObj(obj);

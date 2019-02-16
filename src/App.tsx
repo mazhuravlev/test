@@ -1,12 +1,6 @@
 import React, { Component } from 'react';
-import logo from './logo.svg';
 import './App.css';
 import * as math from 'mathjs';
-import { object } from 'prop-types';
-
-interface Force extends Vec2 {}
-
-interface Acceleration extends Vec2 {}
 
 class Vec2 {
   constructor(public readonly x: number, public readonly y: number) {
@@ -28,6 +22,13 @@ class Vec2 {
     return new Vec2(this.x * x, this.y * x);
   }
 
+  public rotate(angle: number) {
+    const { x, y } = this;
+    const sin = Math.sin(angle);
+    const cos = Math.cos(angle);
+    return new Vec2(x * cos - y * sin, x * sin + y * cos);
+  }
+
   public normalize() {
     return this.divide(this.length);
   }
@@ -42,29 +43,41 @@ class Obj {
 
   private position = new Vec2(0,0);
   private velocity = new Vec2(0,0);
-  private forces: {v: Vec2, t: number}[] = [];
+  private forces: Vec2[] = [];
 
   public setPosition(position: Vec2) {
     this.position = position;
+  }
+
+  public setVelocity(velocity: Vec2) {
+    this.velocity = velocity;
+  }
+
+  public getForces(){
+    return this.forces;
+  }
+
+  public getVelocity() {
+    return this.velocity;
   }
 
   public getPosition() {
      return this.position;
   }
 
-  public applyForce(force: Force, time: number) {
-    this.forces.push({v: force, t: time});
+  public applyForce(force: Vec2) {
+    this.forces.push(force);
   }
 
   public update(dt: number) {
-    this.forces = this.forces.filter(x => x.t > 0);
-    const sumForce = this.forces.reduce((a, c) => {
-      c.t -= dt;
-      return c.t > 0 ? a.add(c.v) : a;
-    }, new Vec2(0,0));
-    const acceleration = sumForce.divide(this.mass);
+    const acceleration = this.resultingForce.divide(this.mass);
     this.velocity = acceleration.multiply(dt).add(this.velocity);
     this.position = this.velocity.multiply(dt).add(this.position);
+    this.forces = [];
+  }
+
+  public get resultingForce() {
+    return this.forces.reduce((a, c) => a.add(c), new Vec2(0,0));
   }
 }
 
@@ -90,58 +103,106 @@ class Display {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
+  public renderTerrain(f: math.EvalFunction){
+    const { ctx } = this;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    for(let x = 0; x < this.canvas.width; x += 6) {
+        ctx.lineTo(x, this.canvas.height - f.eval({x}));
+    }
+    ctx.stroke();
+  }
+
   public renderObj(obj: Obj) {
+    const { ctx } = this;
     const size = 6;
-    const canvasPos = this.toCanvas(obj.getPosition());
-    this.ctx.beginPath();
-    this.ctx.arc(canvasPos.x + size/2, canvasPos.y + size/2, size, 0, 2 * Math.PI);
-    this.ctx.stroke();
+    const forceDrawMultiplier = 30000;
+    const canvasObjPos = this.toCanvas(obj.getPosition());
+    ctx.beginPath();
+    ctx.arc(canvasObjPos.x, canvasObjPos.y, size, 0, 2 * Math.PI);
+    ctx.stroke();
+
+    ctx.beginPath();
+    const s = ctx.strokeStyle;
+    ctx.strokeStyle = "#0000aa";
+    obj.getForces().forEach(force => {
+      ctx.moveTo(canvasObjPos.x, canvasObjPos.y);
+      ctx.lineTo(canvasObjPos.x + force.x * forceDrawMultiplier, canvasObjPos.y - force.y * forceDrawMultiplier);
+    });
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.strokeStyle = "#dd2311";
+    const sumForce = obj.resultingForce;
+    ctx.moveTo(canvasObjPos.x, canvasObjPos.y);
+    ctx.lineTo(canvasObjPos.x + sumForce.x * forceDrawMultiplier, canvasObjPos.y - sumForce.y * forceDrawMultiplier);
+    ctx.stroke();
+    ctx.strokeStyle = s;
   }
 
   private fromCanvas(vec2: Vec2): Vec2 {
-    return new Vec2(vec2.x, this.canvas.height- vec2.y);
+    return new Vec2(vec2.x, this.canvas.height - vec2.y);
   }
 
   private toCanvas(vec2: Vec2): Vec2 {
-    return new Vec2(vec2.x, this.canvas.height- vec2.y);
+    return new Vec2(vec2.x, this.canvas.height - vec2.y);
   }
 }
 
-const g = new Vec2(0, 9.8);
+const gravity = new Vec2(0, -.00098);
 
-const terrainExprString = 'sin(x/20) * 20 + 100';
+const terrainExprString = 'sin(x/30) * 30 + 100';
+// const terrainExprString = ' ((x-400)/15)^2 + 125';
 const terrainExpr = math.compile(terrainExprString);
 const terrainExprDerivative = math.derivative(terrainExprString, 'x');
 
+const collisionTheshold = 3;
+
 class App extends Component {
   private cRef = React.createRef<HTMLCanvasElement>();
+  private keyDown = false;
 
   public componentDidMount() {
-    const obj = new Obj(100);
-    obj.setPosition(new Vec2(450,450));
+    document.addEventListener('keydown', e => this.keyDown = true);
+    document.addEventListener('keyup', e => this.keyDown = false);
 
-    const obj2 = new Obj(1000);
-    obj2.setPosition(new Vec2(100,100));
+    const obj = new Obj(10);
+    obj.setPosition(new Vec2(450,150));
 
     if(!this.cRef.current) return;
     const display = new Display(this.cRef.current);
     display.onClick = (pos) => {
-      const v = obj.getPosition().substract(pos).normalize();
-      obj.applyForce(v.multiply(.01), 100);
+      obj.setPosition(pos);
+      obj.setVelocity(new Vec2(0,0));
     };
     let lt = 0;
+    let flag = false;
     const step  = (t: number) => {
+      const objPos = obj.getPosition();
+      const terrainY = terrainExpr.eval({x: objPos.x});
+      if(objPos.y - terrainY < collisionTheshold) {
+        const tg = terrainExprDerivative.eval({x: objPos.x});
+        const θ = Math.atan(tg);
+        const fN = gravity.multiply(Math.cos(θ) * obj.getVelocity().length * 100).rotate(θ - Math.PI);
+        if(!flag) {
+          const v = obj.getVelocity();
+         // obj.setVelocity(new Vec2(v.x * Math.sin(θ), v.y * Math.cos(θ)));
+          flag = true;
+        }
+        obj.applyForce(fN);
+      } else {
+        flag = false;
+      }
+      if(this.keyDown) obj.applyForce(gravity.multiply(4));
+      obj.applyForce(gravity);
+
+      display.clear();
+      display.renderObj(obj);
+      display.renderTerrain(terrainExpr);
       if(lt) {
         const dt = t - lt;
         obj.update(dt);
-        const v = obj.getPosition().substract(obj2.getPosition());
-        obj2.applyForce(v.normalize().divide(v.length), dt + 1);
-        obj2.update(dt);
       }
       lt = t;
-      display.clear();
-      display.renderObj(obj);
-      display.renderObj(obj2);
       requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
@@ -155,57 +216,3 @@ class App extends Component {
 }
 
 export default App;
-// \\
-// private renderCanvas = (ctx: CanvasRenderingContext2D, mousePos : Pt2, obj: Obj) => {
-//   ctx.beginPath();
-//   ctx.moveTo(0, 0);
-//   for(let x = 0; x < 900; x += 6) {
-//       ctx.lineTo(x, Math.sin(x/20) * 20 + 100);
-//   }
-//   ctx.stroke();
-//   if(mousePos) {
-//     const s = 6;
-//     ctx.beginPath();
-//     ctx.arc(obj.position.x + s/2, obj.position.y + s/2, s, 0, 2 * Math.PI);
-//     ctx.stroke();
-//     const y = Math.sin(mousePos.x/20) * 20 + 100;
-//     const tg = d.eval({x: mousePos.x});
-//     ctx.moveTo(mousePos.x - 50, y - 50 * tg);
-//     ctx.lineTo(mousePos.x  + 50, y + 50 * tg);
-//     ctx.stroke();
-//   }
-// }
-
-// public componentDidMount() {
-//   if(!this.cRef.current) return;
-//   const canvas = this.cRef.current;
-//   const ctx = canvas.getContext('2d');
-//   if(!ctx) return;
-//   const canvasBbox = canvas.getBoundingClientRect();
-//   let pt = 0;
-//   let mousePos: Pt2 =  {x :0, y: 0};  
-//   const obj: Obj = {position: {x: 100, y: 10}, velocity: {x: 0, y: 0.001}}
-//   const step  = (t: number) => {
-//     if(pt && ctx) {
-//       const dt = t - pt;
-
-//       const y = Math.sin(obj.position.x/20) * 20 + 100;
-//       if(Math.abs(y - obj.position.y) < 6/2) {
-//         const tg = d.eval({x: obj.position.x});
-//       }
-//       obj.velocity.y += 0.001;
-//       obj.position.y += obj.velocity.y * dt;
-
-
-//       ctx.clearRect(0, 0, canvas.width, canvas.height);
-//       this.renderCanvas(ctx, mousePos, obj);
-//     }
-//     pt = t;
-//     requestAnimationFrame(step);
-//   }
-//   requestAnimationFrame(step);
-//   canvas.onmousemove = e => {
-//     mousePos.x = e.clientX - canvasBbox.left;
-//     mousePos.y = e.clientY - canvasBbox.top;
-//   };
-// }

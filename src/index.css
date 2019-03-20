@@ -16,3 +16,9 @@ code {
   font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
     monospace;
 }
+
+.score {
+  position: absolute;
+  left: 100px;
+  top: 100px;
+}

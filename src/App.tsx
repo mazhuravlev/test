@@ -35,15 +35,15 @@ class Vec2 {
   }
 
   public get length() {
-    return Math.sqrt(this.x * this.x + this.y * this. y);
+    return Math.sqrt(this.x * this.x + this.y * this.y);
   }
 }
 
 class Obj {
-  constructor(public readonly mass: number){}
+  constructor(public readonly mass: number) { }
 
-  private position = new Vec2(0,0);
-  private velocity = new Vec2(0,0);
+  private position = new Vec2(0, 0);
+  private velocity = new Vec2(0, 0);
   private forces: Vec2[] = [];
 
   public setPosition(position: Vec2) {
@@ -54,7 +54,7 @@ class Obj {
     this.velocity = velocity;
   }
 
-  public getForces(){
+  public getForces() {
     return this.forces;
   }
 
@@ -63,7 +63,7 @@ class Obj {
   }
 
   public getPosition() {
-     return this.position;
+    return this.position;
   }
 
   public applyForce(force: Vec2) {
@@ -78,23 +78,23 @@ class Obj {
   }
 
   public get resultingForce() {
-    return this.forces.reduce((a, c) => a.add(c), new Vec2(0,0));
+    return this.forces.reduce((a, c) => a.add(c), new Vec2(0, 0));
   }
 }
 
 class Display {
-  private ctx: CanvasRenderingContext2D; 
+  private ctx: CanvasRenderingContext2D;
   public onClick?: (position: Vec2) => void;
   canvasBBox: ClientRect | DOMRect;
   public offset = 0;
 
   constructor(private canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
-    if(!ctx) throw new Error();
+    if (!ctx) throw new Error();
     this.ctx = ctx;
     this.canvasBBox = canvas.getBoundingClientRect();
     canvas.onclick = e => {
-      if(this.onClick) {
+      if (this.onClick) {
         const clickPos = this.fromCanvas(new Vec2(e.clientX - this.canvasBBox.left + this.offset, e.clientY - this.canvasBBox.top));
         this.onClick(clickPos);
       }
@@ -105,12 +105,12 @@ class Display {
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
   }
 
-  public renderTerrain(f: math.EvalFunction){
+  public renderTerrain(f: math.EvalFunction) {
     const { ctx } = this;
     ctx.beginPath();
     ctx.moveTo(0, 0);
-    for(let x = 0; x < this.canvas.width; x += 6) {
-        ctx.lineTo(x, this.canvas.height - f.eval({x: x + this.offset}));
+    for (let x = 0; x < this.canvas.width; x += 6) {
+      ctx.lineTo(x, this.canvas.height - f.eval({ x: x + this.offset }));
     }
     ctx.stroke();
   }
@@ -141,7 +141,7 @@ class Display {
     ctx.strokeStyle = s;
     const ox = this.canvas.width / 2 - canvasObjPos.x;
     const dOffset = ox * ox / 10000;
-    if(canvasObjPos.x > this.canvas.width / 2) {
+    if (canvasObjPos.x > this.canvas.width / 2) {
       this.offset += dOffset;
     } else {
       this.offset -= dOffset;
@@ -166,18 +166,27 @@ const terrainExprDerivative = math.derivative(terrainExprString, 'x');
 
 const collisionTheshold = 3;
 
-class App extends Component {
+interface AppState {
+  offset: number;
+}
+
+class App extends Component<{}, AppState> {
   private cRef = React.createRef<HTMLCanvasElement>();
   private keyDown = false;
 
+  constructor(props: any) {
+    super(props);
+    this.state = { offset: 0 };
+  }
+
   public componentDidMount() {
     const obj = new Obj(10);
-    obj.setPosition(new Vec2(450,150));
+    obj.setPosition(new Vec2(450, 450));
 
-    if(!this.cRef.current) return;
+    if (!this.cRef.current) return;
     const display = new Display(this.cRef.current);
     document.addEventListener('keydown', e => {
-      switch(e.keyCode) {
+      switch (e.keyCode) {
         case 32:
           this.keyDown = true;
           break;
@@ -192,7 +201,7 @@ class App extends Component {
       }
     });
     document.addEventListener('keyup', e => {
-      switch(e.keyCode) {
+      switch (e.keyCode) {
         case 32:
           this.keyDown = false;
           break;
@@ -200,45 +209,58 @@ class App extends Component {
     });
     display.onClick = (pos) => {
       obj.setPosition(pos);
-      obj.setVelocity(new Vec2(0,0));
+      obj.setVelocity(new Vec2(0, 0));
     };
     let lt = 0;
     let flag = false;
-    const step  = (t: number) => {
+    const step = (t: number) => {
       const objPos = obj.getPosition();
-      const terrainY = terrainExpr.eval({x: objPos.x});
-      if(objPos.y - terrainY < collisionTheshold) {
-        const tg = terrainExprDerivative.eval({x: objPos.x});
+      const terrainY = terrainExpr.eval({ x: objPos.x });
+      if (objPos.y - terrainY < collisionTheshold) {
+        const tg = terrainExprDerivative.eval({ x: objPos.x });
         const θ = Math.atan(tg);
         const fN = gravity(obj.mass).multiply(Math.cos(θ) * obj.getVelocity().length * 100).rotate(θ - Math.PI);
-        if(!flag) {
+        if (!flag) {
           const v = obj.getVelocity();
-         // obj.setVelocity(new Vec2(v.x * Math.sin(θ), v.y * Math.cos(θ)));
+          // obj.setVelocity(new Vec2(v.x * Math.sin(θ), v.y * Math.cos(θ)));
           flag = true;
         }
         obj.applyForce(fN);
       } else {
         flag = false;
       }
-      if(this.keyDown) obj.applyForce(gravity(obj.mass));
+      if (this.keyDown) obj.applyForce(gravity(obj.mass));
       obj.applyForce(gravity(obj.mass));
 
       display.clear();
       display.renderObj(obj);
       display.renderTerrain(terrainExpr);
-      if(lt) {
+      if (lt) {
         const dt = t - lt;
         obj.update(dt);
       }
       lt = t;
+      this.setState({ offset: display.offset });
       requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
   }
 
+  private renderScore = () => {
+    return (
+      <>
+        <div>{Math.round(this.state.offset / 10)}</div>
+        <div>ну все, проиграл</div>
+      </>
+    );
+  }
+
   render() {
     return (
-      <canvas ref={this.cRef} width="900" height="900"/>
+      <>
+        <div className="score">{this.renderScore()}</div>
+        <canvas ref={this.cRef} width="900" height="900" />
+      </>
     );
   }
 }
